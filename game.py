@@ -10,7 +10,7 @@ DIFFICULTIES = {
 DEFAULT_DIFFICULTY = "medium"
 
 
-def ask(prompt):  # NEW: the single place input is read
+def ask(prompt):
     """Read, trim and lowercase input. Ctrl+C / Ctrl+D count as /quit."""
     try:
         return input(prompt).strip().lower()
@@ -54,7 +54,7 @@ class HangmanGame:
         return all(ch in self.guessed for ch in set(self.secret))
 
     def guess(self, letter):
-        # CHANGED: every rejection happens BEFORE any state is touched
+        # All rejections happen BEFORE any state is touched
         if letter == "":
             return "Nothing entered. Type a letter, /hint or /quit."
         if len(letter) != 1 or not (letter.isascii() and letter.isalpha()):
@@ -69,7 +69,6 @@ class HangmanGame:
         return "Wrong."
 
     def use_hint(self):
-        # CHANGED: always returns the full message, so the caller prints once
         if self.hint_used:
             return "Hint already used this round."
         self.hint_used = True
@@ -83,6 +82,14 @@ class HangmanGame:
         self.score = max(0, self.score + points)
         return points
 
+    def max_points(self):
+        """Best possible points for the current round (win, no hint)."""
+        return (5 + self.streak + 1) * self.multiplier
+
+    def points_after_hint(self):
+        """Best possible points if a hint is (or has been) used."""
+        return max(0, self.max_points() - self.hint_cost)
+
     def print_summary(self):
         print("\n--- Session Summary ---")
         print("Rounds played:", self.stats.rounds)
@@ -94,17 +101,25 @@ class HangmanGame:
         self.start_round()
         print(f"\nDifficulty: {self.difficulty} | Lives: {self.lives} | "
               f"Score x{self.multiplier} | Hint costs {self.hint_cost}")
+        print(f"Max this round: {self.max_points()} pts "
+              f"(or {self.points_after_hint()} pts if you take a hint)")
         while self.lives > 0 and not self.won():
             print("\nWord:", self.masked())
             print("Wrong:", " ".join(sorted(self.wrong)) or "-")
             print("Lives:", self.lives, "Score:", self.score, "Streak:", self.streak)
+            if self.hint_used:
+                print(f"Hint used: you can now earn at most "
+                      f"{self.points_after_hint()} pts")
+            else:
+                print(f"Win now for up to {self.max_points()} pts "
+                      f"({self.points_after_hint()} with a hint)")
             raw = ask("Letter, /hint, or /quit: ")
             if raw == "/quit":
                 return False
             if raw == "/hint":
                 print(self.use_hint())
                 continue
-            if raw.startswith("/"):  # NEW: unknown commands change nothing
+            if raw.startswith("/"):
                 print("Unknown command. Use /hint or /quit.")
                 continue
             print(self.guess(raw))
@@ -122,7 +137,6 @@ class HangmanGame:
         print("Out of lives. The word was:", self.secret)
         return True
 
-    # NEW: one menu routine shared by category and difficulty
     def _choose(self, title, noun, options):
         while True:
             print(f"\n{title}:", ", ".join(options))
@@ -144,7 +158,7 @@ class HangmanGame:
     def choose_difficulty(self):
         return self._choose("Difficulty", "difficulty", DIFFICULTIES)
 
-    def ask_another_round(self):  # NEW: strict y/n, re-asks on anything else
+    def ask_another_round(self):
         while True:
             raw = ask("Another round? [y/n]: ")
             if raw in ("y", "yes"):
@@ -169,4 +183,4 @@ class HangmanGame:
                 break
             if not self.ask_another_round():
                 break
-        self.print_summary()  # CHANGED: one exit path, summary printed once
+        self.print_summary()
