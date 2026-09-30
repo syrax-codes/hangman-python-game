@@ -1,5 +1,6 @@
 import random
 from words import WORDS, HINTS
+from stats import SessionStats  # NEW
 
 
 class HangmanGame:
@@ -12,8 +13,10 @@ class HangmanGame:
         self.wrong = set()
         self.lives = 6
         self.hint_used = False
+        self.stats = SessionStats()  # NEW: session-level, never reset
 
     def start_round(self):
+        # Round-specific state only
         self.secret = random.choice(WORDS[self.category])
         self.guessed.clear()
         self.wrong.clear()
@@ -29,7 +32,7 @@ class HangmanGame:
     def guess(self, letter):
         if len(letter) != 1 or not letter.isalpha():
             return "Enter one letter."
-        if letter in self.guessed or letter in self.wrong:
+        if letter in self.guessed or letter in self.wrong:  # Task 1 fix
             return "Already guessed."
         if letter in self.secret:
             self.guessed.add(letter)
@@ -44,6 +47,13 @@ class HangmanGame:
         self.hint_used = True
         self.score = max(0, self.score - 1)
         return HINTS.get(self.secret, "No hint available.")
+
+    def print_summary(self):  # NEW
+        print("\n--- Session Summary ---")
+        print("Rounds played:", self.stats.rounds)
+        print("Rounds won:", self.stats.wins)
+        print("Best streak:", self.stats.best_streak)
+        print("Final score:", self.score)
 
     def play_round(self):
         self.start_round()
@@ -63,10 +73,12 @@ class HangmanGame:
         if self.won():
             self.streak += 1
             self.score += 5 + self.streak
+            self.stats.record(True, self.streak)  # CHANGED: record win
             print("Solved:", self.secret)
             return True
 
         self.streak = 0
+        self.stats.record(False, self.streak)  # CHANGED: record loss
         print("Out of lives. The word was:", self.secret)
         return True
 
@@ -77,14 +89,16 @@ class HangmanGame:
             print("\nCategories:", ", ".join(WORDS))
             raw = input("Choose category or q: ").strip().lower()
             if raw == "q":
+                self.print_summary()  # CHANGED
                 return
             if raw not in WORDS:
                 print("Unknown category.")
                 continue
             self.category = raw
             if not self.play_round():
+                self.print_summary()  # CHANGED: summary after /quit
                 return
             again = input("Another round? [y/n]: ").strip().lower()
             if again != "y":
-                print("Final score:", self.score, " Streak:", self.streak)
+                self.print_summary()  # CHANGED: replaces old final-score print
                 return
