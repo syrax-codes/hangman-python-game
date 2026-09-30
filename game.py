@@ -2,7 +2,6 @@ import random
 from words import WORDS, HINTS
 from stats import SessionStats
 
-# NEW: one place that defines the rules for each difficulty
 DIFFICULTIES = {
     "easy":   {"lives": 8, "multiplier": 1, "hint_cost": 1},
     "medium": {"lives": 6, "multiplier": 2, "hint_cost": 2},
@@ -11,13 +10,22 @@ DIFFICULTIES = {
 DEFAULT_DIFFICULTY = "medium"
 
 
+def ask(prompt):  # NEW: the single place input is read
+    """Read, trim and lowercase input. Ctrl+C / Ctrl+D count as /quit."""
+    try:
+        return input(prompt).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return "/quit"
+
+
 class HangmanGame:
     def __init__(self):
         # Session-level state (persists across rounds)
         self.score = 0
         self.streak = 0
         self.category = "technology"
-        self.difficulty = DEFAULT_DIFFICULTY  # NEW: the player's choice
+        self.difficulty = DEFAULT_DIFFICULTY
         self.stats = SessionStats()
 
         # Round-level state (rebuilt in start_round)
@@ -25,12 +33,11 @@ class HangmanGame:
         self.guessed = set()
         self.wrong = set()
         self.lives = 0
-        self.multiplier = 1      # NEW
-        self.hint_cost = 0       # NEW
+        self.multiplier = 1
+        self.hint_cost = 0
         self.hint_used = False
 
     def start_round(self):
-        # Round rules are re-read from the table every round: nothing leaks
         rules = DIFFICULTIES[self.difficulty]
         self.secret = random.choice(WORDS[self.category])
         self.guessed.clear()
@@ -47,8 +54,11 @@ class HangmanGame:
         return all(ch in self.guessed for ch in set(self.secret))
 
     def guess(self, letter):
-        if len(letter) != 1 or not letter.isalpha():
-            return "Enter one letter."
+        # CHANGED: every rejection happens BEFORE any state is touched
+        if letter == "":
+            return "Nothing entered. Type a letter, /hint or /quit."
+        if len(letter) != 1 or not (letter.isascii() and letter.isalpha()):
+            return "Enter a single letter (a-z)."
         if letter in self.guessed or letter in self.wrong:
             return "Already guessed."
         if letter in self.secret:
@@ -59,14 +69,14 @@ class HangmanGame:
         return "Wrong."
 
     def use_hint(self):
-        # CHANGED: no score change here. The cost is applied once, in
-        # settle_score(), so it is identical for wins and losses.
+        # CHANGED: always returns the full message, so the caller prints once
         if self.hint_used:
-            return None
+            return "Hint already used this round."
         self.hint_used = True
-        return HINTS.get(self.secret, "No hint available.")
+        text = HINTS.get(self.secret, "No hint available.")
+        return f"Hint: {text} (costs {self.hint_cost} points)"
 
-    def settle_score(self, won):  # NEW: single place where points change
+    def settle_score(self, won):
         points = (5 + self.streak) * self.multiplier if won else 0
         if self.hint_used:
             points -= self.hint_cost
@@ -88,12 +98,14 @@ class HangmanGame:
             print("\nWord:", self.masked())
             print("Wrong:", " ".join(sorted(self.wrong)) or "-")
             print("Lives:", self.lives, "Score:", self.score, "Streak:", self.streak)
-            raw = input("Letter, /hint, or /quit: ").strip().lower()
+            raw = ask("Letter, /hint, or /quit: ")
             if raw == "/quit":
                 return False
             if raw == "/hint":
-                hint = self.use_hint()
-                print(hint if hint else "Hint already used.")
+                print(self.use_hint())
+                continue
+            if raw.startswith("/"):  # NEW: unknown commands change nothing
+                print("Unknown command. Use /hint or /quit.")
                 continue
             print(self.guess(raw))
 
@@ -110,26 +122,36 @@ class HangmanGame:
         print("Out of lives. The word was:", self.secret)
         return True
 
-    # NEW: menu helpers keep run() short. Each returns None if the player quits.
-    def choose_category(self):
+    # NEW: one menu routine shared by category and difficulty
+    def _choose(self, title, noun, options):
         while True:
-            print("\nCategories:", ", ".join(WORDS))
-            raw = input("Choose category or q: ").strip().lower()
-            if raw == "q":
+            print(f"\n{title}:", ", ".join(options))
+            raw = ask(f"Choose {noun} or q: ")
+            if raw in ("q", "/quit"):
                 return None
-            if raw in WORDS:
+            if raw in options:
                 return raw
-            print("Unknown category.")
+            if raw == "":
+                print(f"Nothing entered. Type a {noun} name or q.")
+            elif raw == "/hint":
+                print("Hints are only available during a round.")
+            else:
+                print(f"Unknown {noun}.")
+
+    def choose_category(self):
+        return self._choose("Categories", "category", WORDS)
 
     def choose_difficulty(self):
+        return self._choose("Difficulty", "difficulty", DIFFICULTIES)
+
+    def ask_another_round(self):  # NEW: strict y/n, re-asks on anything else
         while True:
-            print("\nDifficulty:", ", ".join(DIFFICULTIES))
-            raw = input("Choose difficulty or q: ").strip().lower()
-            if raw == "q":
-                return None
-            if raw in DIFFICULTIES:
-                return raw
-            print("Unknown difficulty.")
+            raw = ask("Another round? [y/n]: ")
+            if raw in ("y", "yes"):
+                return True
+            if raw in ("n", "no", "q", "/quit"):
+                return False
+            print("Please answer y or n.")
 
     def run(self):
         print("Hangman Challenge")
@@ -137,18 +159,14 @@ class HangmanGame:
         while True:
             category = self.choose_category()
             if category is None:
-                self.print_summary()
-                return
+                break
             difficulty = self.choose_difficulty()
             if difficulty is None:
-                self.print_summary()
-                return
+                break
             self.category = category
             self.difficulty = difficulty
             if not self.play_round():
-                self.print_summary()
-                return
-            again = input("Another round? [y/n]: ").strip().lower()
-            if again != "y":
-                self.print_summary()
-                return
+                break
+            if not self.ask_another_round():
+                break
+        self.print_summary()  # CHANGED: one exit path, summary printed once
